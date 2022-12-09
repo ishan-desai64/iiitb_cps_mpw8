@@ -69,19 +69,12 @@ module user_proj_example #(
     output [2:0] irq
 );
     wire clk;
-    wire rst;
-
-    wire [`MPRJ_IO_PADS-1:0] io_in;
-    wire [`MPRJ_IO_PADS-1:0] io_out;
-    wire [`MPRJ_IO_PADS-1:0] io_oeb;
-
-    wire [31:0] rdata; 
-    wire [31:0] wdata;
-    wire [BITS-1:0] count;
-
-    wire valid;
-    wire [3:0] wstrb;
-    wire [31:0] la_write;
+    wire reset_n;
+    wire sensor_entrance;
+    wire sensor_exit;
+    wire [1:0] password_1,password_2;
+    wire GREEN_LED,RED_LED;
+    WIRE [6:0] HEX_1, HEX_2
 
     // WB MI A
     assign valid = wbs_cyc_i && wbs_stb_i; 
@@ -104,62 +97,128 @@ module user_proj_example #(
     assign clk = (~la_oenb[64]) ? la_data_in[64]: wb_clk_i;
     assign rst = (~la_oenb[65]) ? la_data_in[65]: wb_rst_i;
 
-    counter #(
-        .BITS(BITS)
-    ) counter(
-        .clk(clk),
-        .reset(rst),
-        .ready(wbs_ack_o),
-        .valid(valid),
-        .rdata(rdata),
-        .wdata(wbs_dat_i),
-        .wstrb(wstrb),
-        .la_write(la_write),
-        .la_input(la_data_in[63:32]),
-        .count(count)
+iiitb_cps cps( 
+                input clk,reset_n,
+ input sensor_entrance, sensor_exit, 
+ input [1:0] password_1, password_2,
+ output wire GREEN_LED,RED_LED,
+ output reg [6:0] HEX_1, HEX_2
     );
-
 endmodule
 
-module counter #(
-    parameter BITS = 32
-)(
-    input clk,
-    input reset,
-    input valid,
-    input [3:0] wstrb,
-    input [BITS-1:0] wdata,
-    input [BITS-1:0] la_write,
-    input [BITS-1:0] la_input,
-    output ready,
-    output [BITS-1:0] rdata,
-    output [BITS-1:0] count
-);
-    reg ready;
-    reg [BITS-1:0] count;
-    reg [BITS-1:0] rdata;
 
-    always @(posedge clk) begin
-        if (reset) begin
-            count <= 0;
-            ready <= 0;
-        end else begin
-            ready <= 1'b0;
-            if (~|la_write) begin
-                count <= count + 1;
-            end
-            if (valid && !ready) begin
-                ready <= 1'b1;
-                rdata <= count;
-                if (wstrb[0]) count[7:0]   <= wdata[7:0];
-                if (wstrb[1]) count[15:8]  <= wdata[15:8];
-                if (wstrb[2]) count[23:16] <= wdata[23:16];
-                if (wstrb[3]) count[31:24] <= wdata[31:24];
-            end else if (|la_write) begin
-                count <= la_write & la_input;
-            end
-        end
-    end
+module iiitb_cps( 
+                input clk,reset_n,
+ input sensor_entrance, sensor_exit, 
+ input [1:0] password_1, password_2,
+ output wire GREEN_LED,RED_LED,
+ output reg [6:0] HEX_1, HEX_2
+    );
+ parameter IDLE = 3'b000, WAIT_PASSWORD = 3'b001, WRONG_PASS = 3'b010, RIGHT_PASS = 3'b011,STOP = 3'b100;
+ // Moore FSM : output just depends on the current state
+ reg[2:0] current_state, next_state;
+ reg[31:0] counter_wait;
+ reg red_tmp,green_tmp;
+ // Next state
+ always @(posedge clk or negedge reset_n)
+ begin
+ if(~reset_n) 
+ current_state = IDLE;
+ else
+ current_state = next_state;
+ end
+ // counter_wait
+ always @(posedge clk or negedge reset_n) 
+ begin
+ if(~reset_n) 
+ counter_wait <= 0;
+ else if(current_state==WAIT_PASSWORD)
+ counter_wait <= counter_wait + 1;
+ else 
+ counter_wait <= 0;
+ end
+ // change state
+// fpga4student.com FPGA projects, Verilog projects, VHDL projects
+ always @(*)
+ begin
+ case(current_state)
+ IDLE: begin
+         if(sensor_entrance == 1)
+ next_state = WAIT_PASSWORD;
+ else
+ next_state = IDLE;
+ end
+ WAIT_PASSWORD: begin
+ if(counter_wait <= 3)
+ next_state = WAIT_PASSWORD;
+ else 
+ begin
+ if((password_1==2'b01)&&(password_2==2'b10))
+ next_state = RIGHT_PASS;
+ else
+ next_state = WRONG_PASS;
+ end
+ end
+ WRONG_PASS: begin
+ if((password_1==2'b01)&&(password_2==2'b10))
+ next_state = RIGHT_PASS;
+ else
+ next_state = WRONG_PASS;
+ end
+ RIGHT_PASS: begin
+ if(sensor_entrance==1 && sensor_exit == 1)
+ next_state = STOP;
+ else if(sensor_exit == 1)
+ next_state = IDLE;
+ else
+ next_state = RIGHT_PASS;
+ end
+ STOP: begin
+ if((password_1==2'b01)&&(password_2==2'b10))
+ next_state = RIGHT_PASS;
+ else
+ next_state = STOP;
+ end
+ default: next_state = IDLE;
+ endcase
+ end
+ // LEDs and output, change the period of blinking LEDs here
+ always @(posedge clk) begin 
+ case(current_state)
+ IDLE: begin
+ green_tmp = 1'b0;
+ red_tmp = 1'b0;
+ HEX_1 = 7'b1111111; // off
+ HEX_2 = 7'b1111111; // off
+ end
+ WAIT_PASSWORD: begin
+ green_tmp = 1'b0;
+ red_tmp = 1'b1;
+ HEX_1 = 7'b000_0110; // E
+ HEX_2 = 7'b010_1011; // n 
+ end
+ WRONG_PASS: begin
+ green_tmp = 1'b0;
+ red_tmp = ~red_tmp;
+ HEX_1 = 7'b000_0110; // E
+ HEX_2 = 7'b000_0110; // E 
+ end
+ RIGHT_PASS: begin
+ green_tmp = ~green_tmp;
+ red_tmp = 1'b0;
+ HEX_1 = 7'b000_0010; // 6
+ HEX_2 = 7'b100_0000; // 0 
+ end
+ STOP: begin
+ green_tmp = 1'b0;
+ red_tmp = ~red_tmp;
+ HEX_1 = 7'b001_0010; // 5
+ HEX_2 = 7'b000_1100; // P 
+ end
+ endcase
+ end
+ assign RED_LED = red_tmp  ;
+ assign GREEN_LED = green_tmp;
 
 endmodule
 `default_nettype wire
