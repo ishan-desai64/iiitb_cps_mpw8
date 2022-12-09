@@ -74,35 +74,28 @@ module user_proj_example #(
     wire sensor_exit;
     wire [1:0] password_1,password_2;
     wire GREEN_LED,RED_LED;
-    WIRE [6:0] HEX_1, HEX_2
+    wire [6:0] HEX_1, HEX_2
 
-    // WB MI A
-    assign valid = wbs_cyc_i && wbs_stb_i; 
-    assign wstrb = wbs_sel_i & {4{wbs_we_i}};
-    assign wbs_dat_o = rdata;
-    assign wdata = wbs_dat_i;
+    
 
     // IO
-    assign io_out = count;
-    assign io_oeb = {(`MPRJ_IO_PADS-1){rst}};
+    assign clk = wb_clk_i;
+    assign reset_n = wb_rst_i;
+    assign {sensor_entrance,sensor-exit} = io_in[37:36];
+    assign {password_1,password_2} = io_in[35:32];
+    assign io_out[37:22] = {GREEN_LED,RED_LED,HEX_1,HEX_2};
+    assign io_oeb = 0;
 
     // IRQ
     assign irq = 3'b000;	// Unused
 
-    // LA
-    assign la_data_out = {{(127-BITS){1'b0}}, count};
-    // Assuming LA probes [63:32] are for controlling the count register  
-    assign la_write = ~la_oenb[63:32] & ~{BITS{valid}};
-    // Assuming LA probes [65:64] are for controlling the count clk & reset  
-    assign clk = (~la_oenb[64]) ? la_data_in[64]: wb_clk_i;
-    assign rst = (~la_oenb[65]) ? la_data_in[65]: wb_rst_i;
-
+   
 iiitb_cps cps( 
-                input clk,reset_n,
- input sensor_entrance, sensor_exit, 
- input [1:0] password_1, password_2,
- output wire GREEN_LED,RED_LED,
- output reg [6:0] HEX_1, HEX_2
+                clk,reset_n,
+ sensor_entrance, sensor_exit, 
+ password_1, password_2,
+ GREEN_LED,RED_LED,
+ HEX_1, HEX_2
     );
 endmodule
 
